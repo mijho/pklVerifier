@@ -3,15 +3,13 @@ package main
 import (
 	"encoding/base64"
 	"crypto/sha1"
-        "fmt"
+        // "fmt"
         "io"
         "os"
         "strconv"
 )
 
 func VerifyHash(s string, h string) string {
-
-        fmt.Println("\nValidating:                " + s)
 
         f, e := os.Open(s)
         if e != nil {
@@ -38,8 +36,8 @@ func VerifySize(f string, s string) string {
                 panic(e)
         }
 
-        fmt.Println("The reported filesize is:  " + s)
-        fmt.Printf("The actual filesize is:    %d\n", file.Size())
+        // fmt.Println("The reported filesize is:  " + s)
+        // fmt.Printf("The actual filesize is:    %d\n", file.Size())
         fileSizeString := strconv.FormatInt(file.Size(),10)
         return fileSizeString
 

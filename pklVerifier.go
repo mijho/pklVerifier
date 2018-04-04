@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 )
 
 func findXmlFiles(f string) ([]string, string, error) {
@@ -43,6 +44,38 @@ func findXmlFiles(f string) ([]string, string, error) {
 	return fileList, assetMapPath, nil
 }
 
+func validateFiles(s []string, DcpDir string) {
+	ec := 0
+	asset := s
+	fileToVerify := strings.Join([]string{DcpDir, "/", asset[1]}, "")
+	encodedHash := VerifyHash(fileToVerify, asset[2])
+	fileSizeString := VerifySize(fileToVerify, asset[3])
+
+    fmt.Println("\nValidating:                " + asset[1])
+    fmt.Println("The reported filesize is:  " + asset[3] + "\nThe actual filesize is:    " + fileSizeString)
+    fmt.Println("Hash from PKL:             " + asset[2] + "\nHash of file:              " + encodedHash)
+    
+    if asset[2] != encodedHash {
+            fmt.Println("Hash result:              ", Red("NOT VALID"))
+            ec++
+    } else {
+            fmt.Println("Hash result:              ", Green("VALID"))
+    }
+
+    if asset[3] != fileSizeString {
+            fmt.Println("Size result:              ", Red("NOT VALID"))
+            ec++
+    } else {
+            fmt.Println("Size result:              ", Green("VALID"))
+    }
+
+	if ec != 0 {
+		fmt.Printf("\nThe hashcheck has completed with %d errors.\n", Red(ec))
+	} else {
+		fmt.Printf("\nThe hashcheck has completed with %d errors.\n", Green(ec))
+	}
+}
+
 func main() {
 
 	var DcpDir, outFile string
@@ -50,7 +83,7 @@ func main() {
 	flag.StringVar(&outFile, "o", "", "Specify a file to write the results to")
 	flag.Parse()
 
-	ec := 0
+	// ec := 0
 
 	listOfPkls, assetMapPath, e := findXmlFiles(DcpDir)
 	assetsArray := make([][]string, 0)
@@ -66,31 +99,39 @@ func main() {
 			assetsArray = GetAssetValues(file, assetMapPath)
 		}
 	}
-
+	var wg sync.WaitGroup
+	// var i int = -1
+	// var asset []string
 	for _, asset := range assetsArray {
-		fileToVerify := strings.Join([]string{DcpDir, "/", asset[1]}, "")
-		encodedHash := VerifyHash(fileToVerify, asset[2])
-		fileSizeString := VerifySize(fileToVerify, asset[3])
+		wg.Add(1)
+		go func (a []string) {
+			validateFiles(a, DcpDir)
+			wg.Done()
+		} (asset)
+		// fileToVerify := strings.Join([]string{DcpDir, "/", asset[1]}, "")
+		// encodedHash := VerifyHash(fileToVerify, asset[2])
+		// fileSizeString := VerifySize(fileToVerify, asset[3])
 
-        fmt.Println("Hash from PKL:             " + asset[2] + "\nHash of file:              " + encodedHash)
-        if asset[2] != encodedHash {
-                fmt.Println("Hash result:              ", Red("NOT VALID"))
-                ec++
-        } else {
-                fmt.Println("Hash result:              ", Green("VALID"))
-        }
+  //       fmt.Println("Hash from PKL:             " + asset[2] + "\nHash of file:              " + encodedHash)
+  //       if asset[2] != encodedHash {
+  //               fmt.Println("Hash result:              ", Red("NOT VALID"))
+  //               ec++
+  //       } else {
+  //               fmt.Println("Hash result:              ", Green("VALID"))
+  //       }
 
-        if asset[3] != fileSizeString {
-                fmt.Println("Size result:              ", Red("NOT VALID"))
-                ec++
-        } else {
-                fmt.Println("Size result:              ", Green("VALID"))
-        }
+  //       if asset[3] != fileSizeString {
+  //               fmt.Println("Size result:              ", Red("NOT VALID"))
+  //               ec++
+  //       } else {
+  //               fmt.Println("Size result:              ", Green("VALID"))
+  //       }
 	}
+	wg.Wait()
 
-	if ec != 0 {
-		fmt.Printf("\nThe hashcheck has completed with %d errors.\n", Red(ec))
-	} else {
-		fmt.Printf("\nThe hashcheck has completed with %d errors.\n", Green(ec))
-	}
+	// if ec != 0 {
+	// 	fmt.Printf("\nThe hashcheck has completed with %d errors.\n", Red(ec))
+	// } else {
+	// 	fmt.Printf("\nThe hashcheck has completed with %d errors.\n", Green(ec))
+	// }
 }
