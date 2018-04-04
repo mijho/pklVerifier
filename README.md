@@ -1,6 +1,6 @@
 ### pklVerifier
 
-#### A DCP validation tool that utilises written in Golang
+#### A DCP validation tool written in Golang
 
 ##### Installation Instructions
 
