@@ -2,6 +2,8 @@
 
 #### A DCP validation tool written in Golang
 
+This is currently in development and shouldn't be relied upon to validate accurately at this point.
+
 ##### Installation Instructions
 
 With go get:
