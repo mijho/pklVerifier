@@ -18,10 +18,7 @@ type Assets struct {
 	Assets  []Asset  `xml:"Asset"`
 }
 
-// the Asset struct, this contains our
-// Type attribute, our user's name and
-// a social struct which will contain all
-// our social links
+// the Asset struct
 type Asset struct {
 	XMLName xml.Name `xml:"Asset"`
 	Id      string   `xml:"Id"`
@@ -31,33 +28,29 @@ type Asset struct {
 	Type    string   `xml:"Type"`
 }
 
-func getAssetValues(s string, a string) [][]string {
+func getAssetValues(s string, a string) ([]map[string]string, error) {
 
-	xmlFile, e := os.Open(s)
-	if e != nil {
-		panic(e)
+	xmlFile, err := os.Open(s)
+	if err != nil {
+		return nil, err
 	}
 
 	defer xmlFile.Close()
 	byteValue, _ := ioutil.ReadAll(xmlFile)
 
 	var assets PackingList
+	var assetsArray []map[string]string
 	xml.Unmarshal(byteValue, &assets)
-	assetsArray := make([][]string, 0)
 
 	for i := 0; i < len(assets.AssetList.Assets); i++ {
-		assetArray := make([]string, 0)
-		assetArray = append(assetArray, assets.AssetList.Assets[i].Id)
-		if assets.AssetList.Assets[i].Name != "" {
-			assetArray = append(assetArray, assets.AssetList.Assets[i].Name)
-		} else {
-			assetArray = append(assetArray, getNameFromAssetMap(assets.AssetList.Assets[i].Id, a))
-		}
-		assetArray = append(assetArray, assets.AssetList.Assets[i].Hash)
-		assetArray = append(assetArray, assets.AssetList.Assets[i].Size)
-		assetArray = append(assetArray, assets.AssetList.Assets[i].Type)
+		assetMap := make(map[string]string)
+		assetMap["Id"] = assets.AssetList.Assets[i].Id
+		assetMap["Name"] = assets.AssetList.Assets[i].Name
+		assetMap["Hash"] = assets.AssetList.Assets[i].Hash
+		assetMap["Size"] = assets.AssetList.Assets[i].Size
+		assetMap["Type"] = assets.AssetList.Assets[i].Type
+		assetsArray = append(assetsArray, assetMap)
 
-		assetsArray = append(assetsArray, assetArray)
 	}
-	return assetsArray
+	return assetsArray, err
 }

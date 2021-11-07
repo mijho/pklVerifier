@@ -1,9 +1,11 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"io/ioutil"
 	"log"
+	"strconv"
 	"strings"
 
 	. "github.com/logrusorgru/aurora"
@@ -64,48 +66,86 @@ var CLIApp = &cli.App{
 	},
 }
 
+type Result struct {
+	Name         string `json:"name"`
+	ReportedSize string `json:"reported_size"`
+	ActualSize   int64  `json:"actual_size"`
+	ReportedHash string `json:"reported_hash"`
+	ActualHash   string `json:"actual_hash"`
+	HashValid    bool   `json:"hash_valid"`
+	SizeValid    bool   `json:"size_vaild`
+}
+
 // ValidateHandler provides functionality to validate DCP
 func ValidateHandler(c *cli.Context) error {
 	ec := 0
 	listOfPkls, assetMapPath, err := findXmlFiles(inputValue)
 	if err != nil {
-		log.Fatalf("There was an error finding XML files: %s", err)
+		log.Fatalf("There was an error finding XML files: %s\n", err)
 	}
 
-	assetsArray := make([][]string, 0)
+	var assetsArray []map[string]string
 
 	for _, file := range listOfPkls {
 		body, err := ioutil.ReadFile(file)
 		if err != nil {
-			log.Fatalf("There was an error reading body of XML: %s, %s", file, body)
+			log.Fatalf("There was an error reading body of XML: %s, %s\n", file, body)
 		}
 
 		if strings.Contains(string(body), "<PackingList") {
-			assetsArray = getAssetValues(file, assetMapPath)
+			assetsArray, err = getAssetValues(file, assetMapPath)
+			if err != nil {
+				log.Fatalf("There was an error retieving asset values: %s\n", err)
+			}
 		}
 	}
 
 	for _, asset := range assetsArray {
-		fileToVerify := strings.Join([]string{inputValue, "/", asset[1]}, "")
-		encodedHash := verifyHash(fileToVerify, asset[2])
-		fileSizeString := verifySize(fileToVerify, asset[3])
+		var hashValid, sizeValid bool
+		fileToVerify := strings.Join([]string{inputValue, "/", asset["Name"]}, "")
 
-		fmt.Println("Hash from PKL:             " + asset[2] + "\nHash of file:              " + encodedHash)
-		if asset[2] != encodedHash {
-			fmt.Println("Hash result:              ", Red("NOT VALID"))
-			ec++
-		} else {
-			fmt.Println("Hash result:              ", Green("VALID"))
+		encodedHash, err := verifyHash(fileToVerify)
+		if err != nil {
+			log.Fatalf("There was an error hashing %s: %s \n", fileToVerify, err)
 		}
 
-		if asset[3] != fileSizeString {
-			fmt.Println("Size result:              ", Red("NOT VALID"))
+		if asset["Hash"] != encodedHash {
+			hashValid = false
 			ec++
 		} else {
-			fmt.Println("Size result:              ", Green("VALID"))
+			hashValid = true
 		}
+
+		fileSize, err := verifySize(fileToVerify, asset["Size"])
+		if err != nil {
+			log.Fatalf("There was an error getting file size %s: %s \n", fileToVerify, err)
+		}
+
+		if asset["Size"] != strconv.FormatInt(fileSize, 10) {
+			sizeValid = false
+			ec++
+		} else {
+			sizeValid = true
+		}
+
+		result := &Result{
+			Name:         fileToVerify,
+			ReportedSize: asset["Size"],
+			ActualSize:   fileSize,
+			ReportedHash: asset["Hash"],
+			ActualHash:   encodedHash,
+			HashValid:    hashValid,
+			SizeValid:    sizeValid,
+		}
+
+		b, err := json.Marshal(result)
+		if err != nil {
+			log.Fatalf("error marshalling json: %v", err)
+		}
+		fmt.Println(string(b))
 	}
 
+	// TODO: create struct to marshal individual results in and nest overall results
 	if ec != 0 {
 		fmt.Printf("\nThe hashcheck has completed with %d errors.\n", Red(ec))
 	} else {
