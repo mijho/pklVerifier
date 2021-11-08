@@ -8,7 +8,6 @@ import (
 	"strconv"
 	"strings"
 
-	. "github.com/logrusorgru/aurora"
 	"github.com/urfave/cli/v2"
 )
 
@@ -66,6 +65,11 @@ var CLIApp = &cli.App{
 	},
 }
 
+type Results struct {
+	Result []*Result `json:"results"`
+	Errors int       `json:"errors"`
+}
+
 type Result struct {
 	Name         string `json:"name"`
 	ReportedSize string `json:"reported_size"`
@@ -99,6 +103,8 @@ func ValidateHandler(c *cli.Context) error {
 			}
 		}
 	}
+
+	var results Results
 
 	for _, asset := range assetsArray {
 		var hashValid, sizeValid bool
@@ -138,19 +144,19 @@ func ValidateHandler(c *cli.Context) error {
 			SizeValid:    sizeValid,
 		}
 
-		b, err := json.Marshal(result)
-		if err != nil {
-			log.Fatalf("error marshalling json: %v", err)
-		}
-		fmt.Println(string(b))
+		results = Results{Result: append(results.Result, result)}
 	}
 
-	// TODO: create struct to marshal individual results in and nest overall results
-	if ec != 0 {
-		fmt.Printf("\nThe hashcheck has completed with %d errors.\n", Red(ec))
-	} else {
-		fmt.Printf("\nThe hashcheck has completed with %d errors.\n", Green(ec))
+	results = Results{
+		Result: results.Result,
+		Errors: ec,
 	}
+
+	b, err := json.Marshal(results)
+	if err != nil {
+		log.Fatalf("error marshalling json: %v", err)
+	}
+	fmt.Println(string(b))
 
 	return nil
 }
