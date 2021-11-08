@@ -2,10 +2,7 @@ module github.com/mirrorweb/pklVerifier
 
 go 1.17
 
-require (
-	github.com/logrusorgru/aurora v2.0.3+incompatible
-	github.com/urfave/cli/v2 v2.3.0
-)
+require github.com/urfave/cli/v2 v2.3.0
 
 require (
 	github.com/cpuguy83/go-md2man/v2 v2.0.0-20190314233015-f79a8a8ca69d // indirect
