@@ -1,4 +1,4 @@
-module github.com/mirrorweb/pklVerifier
+module github.com/mijho/pklVerifier
 
 go 1.17
 

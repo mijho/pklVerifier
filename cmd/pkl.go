@@ -2,55 +2,31 @@ package main
 
 import (
 	"encoding/xml"
-	"io/ioutil"
+	"fmt"
 	"os"
 )
 
-type PackingList struct {
-	XMLName   xml.Name `xml:"PackingList"`
-	AssetList Assets   `xml:"AssetList"`
+// packingList models the parts of a SMPTE PKL that validation needs.
+type packingList struct {
+	XMLName xml.Name   `xml:"PackingList"`
+	Assets  []pklAsset `xml:"AssetList>Asset"`
 }
 
-// our struct which contains the complete
-// array of all Assets in the file
-type Assets struct {
-	XMLName xml.Name `xml:"AssetList"`
-	Assets  []Asset  `xml:"Asset"`
+type pklAsset struct {
+	ID   string `xml:"Id"`
+	Name string `xml:"OriginalFileName"`
+	Hash string `xml:"Hash"`
+	Size string `xml:"Size"`
 }
 
-// the Asset struct
-type Asset struct {
-	XMLName xml.Name `xml:"Asset"`
-	Id      string   `xml:"Id"`
-	Name    string   `xml:"OriginalFileName"`
-	Hash    string   `xml:"Hash"`
-	Size    string   `xml:"Size"`
-	Type    string   `xml:"Type"`
-}
-
-func getAssetValues(s string, a string) ([]map[string]string, error) {
-
-	xmlFile, err := os.Open(s)
+func readPackingList(path string) ([]pklAsset, error) {
+	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
 	}
-
-	defer xmlFile.Close()
-	byteValue, _ := ioutil.ReadAll(xmlFile)
-
-	var assets PackingList
-	var assetsArray []map[string]string
-	xml.Unmarshal(byteValue, &assets)
-
-	for i := 0; i < len(assets.AssetList.Assets); i++ {
-		assetMap := make(map[string]string)
-		assetMap["Id"] = assets.AssetList.Assets[i].Id
-		assetMap["Name"] = assets.AssetList.Assets[i].Name
-		assetMap["Hash"] = assets.AssetList.Assets[i].Hash
-		assetMap["Size"] = assets.AssetList.Assets[i].Size
-		assetMap["Type"] = assets.AssetList.Assets[i].Type
-		assetsArray = append(assetsArray, assetMap)
-
+	var pl packingList
+	if err := xml.Unmarshal(data, &pl); err != nil {
+		return nil, fmt.Errorf("parsing %s: %w", path, err)
 	}
-	return assetsArray, err
+	return pl.Assets, nil
 }
