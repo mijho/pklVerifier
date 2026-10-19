@@ -103,8 +103,9 @@ Results are then prefixed with the DCP directory name.
 To check that a change is caught, flip a byte in the picture track and rerun:
 
 ```
-$ printf '\xff' | dd of=/tmp/sample/Pkltest_*_OV/j2c_*.mxf bs=1 seek=1000000 conv=notrunc
-$ go run ./cmd validate -i /tmp/sample/Pkltest_FTR-1_F-178_XX-XX_10_2K_20261019_SMPTE_OV
+$ DCP=/tmp/sample/Pkltest_FTR-1_F-178_XX-XX_10_2K_20261019_SMPTE_OV
+$ printf '\xff' | dd of="$DCP/j2c_d46839e3-dfcd-48c2-8e2d-ef85cfdb99f0.mxf" bs=1 seek=1000000 conv=notrunc
+$ go run ./cmd validate -i "$DCP"
 ```
 
 Expect `"errors": 1` and `"hash_valid": false` on the picture track.
