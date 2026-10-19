@@ -1,46 +1,74 @@
-### pklVerifier
+# pklVerifier
 
-#### A DCP validation tool written in Golang
+A DCP validation tool written in Go. It checks each asset listed in a
+SMPTE PackingList (PKL) against the files on disk, comparing SHA-1 hashes and
+sizes, and cross-checks the ASSETMAP.
 
-This is currently in development and shouldn't be relied upon to validate accurately at this point.
+> Still under development. Review the results before relying on them.
 
-##### Installation Instructions
-
-With go get:
-```
-$ go get github.com/mijho/pklVerifier
-```
-Or head to the releases page to download the prebuild binary for your system.
-
-NB gobcrypt has been tested fully on OSX and Linux amd64 only, please let me know if there are any performance issues.
-
-A windows release may be on the cards but would require some small changes first.
+## Build
 
 ```
-Usage of ./pklVerifier:
-  -d string
-    	Specify the path to the DCP directory
+$ go build -o pklVerifier ./cmd
 ```
-Example usage:
 
-Verify a DCP:
+Version info can be embedded at build time:
+
 ```
-$ pklVerifier -d /path/to/DCP 
-Validating:                DCP/example_aud.mxf
-The reported filesize is:  27031694
-The actual filesize is:    27031694
-Hash from PKL:             XXXXXXXXXXXXXXXXXXXXXXXXX+s=
-Hash of file:              XXXXXXXXXXXXXXXXXXXXXXXXX+s=
-Hash result:               VALID
-Size result:               VALID
-
-Validating:                DCP/CPL.xml
-The reported filesize is:  230325
-The actual filesize is:    230325
-Hash from PKL:             XXXXXXXXXXXXXXXXXXXXXXXXX+s=
-Hash of file:              XXXXXXXXXXXXXXXXXXXXXXXXX+s=
-Hash result:               VALID
-Size result:               VALID
-
-The hashcheck has completed with 0 errors.
+$ go build -ldflags "-X main.Version=v1.1.0 -X main.Commit=$(git rev-parse --short HEAD)" -o pklVerifier ./cmd
 ```
+
+Prebuilt binaries for Linux, macOS, and Windows are attached to each
+[release](https://github.com/mijho/pklVerifier/releases).
+
+## Usage
+
+```
+$ pklVerifier validate -i /path/to/DCP [-o results.json]
+```
+
+| Flag | Alias | Description |
+|------|-------|-------------|
+| `--input` | `-i`, `-d` | Path to the DCP directory (required) |
+| `--output` | `-o` | Write JSON results to a file instead of stdout |
+
+Results are JSON:
+
+- `results`: one entry per PKL asset, plus one per ASSETMAP entry that no PKL lists.
+- `unlisted`: files on disk that the ASSETMAP does not mention.
+- `errors`: the total number of failures across the above.
+
+Exit codes: `0` when everything passes, `2` when any check fails, `1` for
+fatal problems such as no PKL being found or unparseable XML.
+
+```json
+{
+  "results": [
+    {
+      "name": "VIDEO/example_aud.mxf",
+      "reported_size": "27031694",
+      "actual_size": 27031694,
+      "reported_hash": "XXXXXXXXXXXXXXXXXXXXXXXXX+s=",
+      "actual_hash": "XXXXXXXXXXXXXXXXXXXXXXXXX+s=",
+      "hash_valid": true,
+      "size_valid": true
+    }
+  ],
+  "unlisted": [],
+  "errors": 0
+}
+```
+
+## Notes
+
+- File locations come from the ASSETMAP when present, otherwise from the
+  PKL's `OriginalFileName`.
+- Assets with several ASSETMAP chunks are hashed as the concatenation of
+  their chunks, in order, and their size is the sum of the chunk sizes.
+- PKL and ASSETMAP filenames are matched case-insensitively. `VOLINDEX.xml`
+  is ignored by the unlisted-file check.
+- Assets whose paths resolve outside the DCP directory are rejected.
+
+## Licence
+
+MIT. See [LICENCE](LICENCE).

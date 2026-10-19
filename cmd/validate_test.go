@@ -250,3 +250,66 @@ func TestJSONShape(t *testing.T) {
 		t.Errorf("expected size_valid key, got %s", b)
 	}
 }
+
+func TestMultiChunkAsset(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "reel1.mxf"), "AAAA")
+	writeFile(t, filepath.Join(dir, "reel2.mxf"), "BBBBBB")
+	writeFile(t, filepath.Join(dir, "ASSETMAP.xml"), `<AssetMap><AssetList><Asset><Id>urn:uuid:9</Id><ChunkList><Chunk><Path>reel1.mxf</Path></Chunk><Chunk><Path>reel2.mxf</Path></Chunk></ChunkList></Asset></AssetList></AssetMap>`)
+	writeFile(t, filepath.Join(dir, "PKL_test.xml"), fmt.Sprintf(`<PackingList><AssetList><Asset><Id>urn:uuid:9</Id><OriginalFileName>movie.mxf</OriginalFileName><Hash>%s</Hash><Size>10</Size></Asset></AssetList></PackingList>`, sha1b64("AAAABBBBBB")))
+	res := mustValidate(t, dir)
+	assertAllValid(t, res)
+	if res.Results[0].Name != "reel1.mxf + reel2.mxf" {
+		t.Errorf("unexpected name %q", res.Results[0].Name)
+	}
+}
+
+func TestMultiChunkMissingPartFails(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "reel1.mxf"), "AAAA")
+	writeFile(t, filepath.Join(dir, "ASSETMAP.xml"), `<AssetMap><AssetList><Asset><Id>urn:uuid:9</Id><ChunkList><Chunk><Path>reel1.mxf</Path></Chunk><Chunk><Path>reel2.mxf</Path></Chunk></ChunkList></Asset></AssetList></AssetMap>`)
+	writeFile(t, filepath.Join(dir, "PKL_test.xml"), fmt.Sprintf(`<PackingList><AssetList><Asset><Id>urn:uuid:9</Id><OriginalFileName>movie.mxf</OriginalFileName><Hash>%s</Hash><Size>10</Size></Asset></AssetList></PackingList>`, sha1b64("AAAABBBBBB")))
+	res := mustValidate(t, dir)
+	if res.Errors != 1 || res.Results[0].Error == "" {
+		t.Fatalf("expected missing chunk to fail, got %+v", res)
+	}
+}
+
+func TestUnlistedFileReported(t *testing.T) {
+	dir := buildDCP(t, t.TempDir(), sampleAssets)
+	writeFile(t, filepath.Join(dir, "stray.mxf"), "junk")
+	res := mustValidate(t, dir)
+	if res.Errors != 1 || len(res.Unlisted) != 1 || res.Unlisted[0] != "stray.mxf" {
+		t.Fatalf("expected stray.mxf unlisted, got %+v", res)
+	}
+}
+
+func TestVolindexAndPKLNotFlagged(t *testing.T) {
+	dir := t.TempDir()
+	buildDCP(t, dir, sampleAssets)
+	writeFile(t, filepath.Join(dir, "VOLINDEX.xml"), "<VolumeIndex/>")
+	// A real ASSETMAP lists the PKL itself; that must not be reported.
+	writeAssetMap(t, dir, "ASSETMAP.xml", append(append([]testAsset{}, sampleAssets...),
+		testAsset{id: "urn:uuid:4444", rel: "PKL_test.xml"}))
+	res := mustValidate(t, dir)
+	if res.Errors != 0 || len(res.Unlisted) != 0 {
+		t.Fatalf("expected no errors, got %+v", res)
+	}
+}
+
+func TestAssetMapOnlyEntryReported(t *testing.T) {
+	dir := buildDCP(t, t.TempDir(), sampleAssets)
+	extra := testAsset{id: "urn:uuid:3333", rel: "extra.mxf", data: "extra"}
+	writeFile(t, filepath.Join(dir, extra.rel), extra.data)
+	writeAssetMap(t, dir, "ASSETMAP.xml", append(append([]testAsset{}, sampleAssets...), extra))
+	res := mustValidate(t, dir)
+	if res.Errors != 1 {
+		t.Fatalf("expected 1 error, got %+v", res)
+	}
+	for _, r := range res.Results {
+		if r.Name == "extra.mxf" && strings.Contains(r.Error, "not in any PKL") {
+			return
+		}
+	}
+	t.Fatalf("extra.mxf not reported: %+v", res.Results)
+}
