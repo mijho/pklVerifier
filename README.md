@@ -72,3 +72,45 @@ fatal problems such as no PKL being found or unparseable XML.
 ## Licence
 
 MIT. See [LICENCE](LICENCE).
+
+## Testing
+
+```
+$ go test -race ./cmd
+```
+
+The real-DCP tests extract `testdata/dcpomatic-2.18.51-smpte-2k-ov.tar.gz`, a
+2K SMPTE DCP made by DCP-o-matic 2.18.51, and check that it validates. They
+also check a copy in a film folder and a copy with one picture byte flipped.
+
+### Try it on the sample DCP
+
+```
+$ mkdir -p /tmp/sample && tar -xzf testdata/dcpomatic-2.18.51-smpte-2k-ov.tar.gz -C /tmp/sample
+$ go run ./cmd validate -i /tmp/sample/Pkltest_FTR-1_F-178_XX-XX_10_2K_20261019_SMPTE_OV
+```
+
+Expect `"errors": 0` and three results: the CPL, the picture MXF and the sound MXF.
+
+To check the film-folder layout, pass the parent directory instead:
+
+```
+$ go run ./cmd validate -i /tmp/sample
+```
+
+Results are then prefixed with the DCP directory name.
+
+To check that a change is caught, flip a byte in the picture track and rerun:
+
+```
+$ printf '\xff' | dd of=/tmp/sample/Pkltest_*_OV/j2c_*.mxf bs=1 seek=1000000 conv=notrunc
+$ go run ./cmd validate -i /tmp/sample/Pkltest_FTR-1_F-178_XX-XX_10_2K_20261019_SMPTE_OV
+```
+
+Expect `"errors": 1` and `"hash_valid": false` on the picture track.
+
+### Regenerating the fixture
+
+`testdata/generate.sh` rebuilds the sample from a 5-second test clip. It needs
+`dcpomatic2_create`, `dcpomatic2_cli` and `ffmpeg` on `PATH`. The output
+contains no real content, so it can be committed.
