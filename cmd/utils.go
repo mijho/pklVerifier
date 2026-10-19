@@ -3,56 +3,97 @@ package main
 import (
 	"crypto/sha1"
 	"encoding/base64"
+	"encoding/xml"
+	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
 )
 
-func findXmlFiles(dir string) ([]string, string, error) {
-	var fileList []string
-	var assetMapPath string
+// dcpFiles holds the metadata files discovered in a DCP directory.
+type dcpFiles struct {
+	packingLists []string
+	assetMap     string
+}
 
-	_ = filepath.Walk(dir, func(path string, f os.FileInfo, err error) error {
-		if strings.Contains(path, "ASSETMAP") {
-			assetMapPath = path
-		}
+// findDcpFiles walks dir and locates PackingList files and the ASSETMAP.
+// Matching is case-insensitive and only regular files are considered.
+func findDcpFiles(dir string) (dcpFiles, error) {
+	var out dcpFiles
+	var assetMaps []string
 
-		if strings.Contains(path, "xml") {
-			fileList = append(fileList, path)
+	err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
 		}
-		return err
+		if d.IsDir() || !d.Type().IsRegular() {
+			return nil
+		}
+		upper := strings.ToUpper(d.Name())
+		if upper == "ASSETMAP" || upper == "ASSETMAP.XML" {
+			assetMaps = append(assetMaps, path)
+			return nil
+		}
+		if !strings.HasSuffix(upper, ".XML") {
+			return nil
+		}
+		root, err := rootElement(path)
+		if err != nil {
+			return nil // not parseable XML, so not a PKL
+		}
+		if root == "PackingList" {
+			out.packingLists = append(out.packingLists, path)
+		}
+		return nil
 	})
+	if err != nil {
+		return out, err
+	}
 
-	return fileList, assetMapPath, nil
+	switch len(assetMaps) {
+	case 0:
+	case 1:
+		out.assetMap = assetMaps[0]
+	default:
+		return out, fmt.Errorf("multiple ASSETMAP files found: %v", assetMaps)
+	}
+	return out, nil
 }
 
-func verifyHash(f string) (string, error) {
-	file, err := os.Open(f)
+// rootElement returns the local name of the document's root element.
+func rootElement(path string) (string, error) {
+	f, err := os.Open(path)
 	if err != nil {
 		return "", err
 	}
-	defer file.Close()
+	defer f.Close()
 
-	hash := sha1.New()
+	dec := xml.NewDecoder(f)
+	for {
+		tok, err := dec.Token()
+		if err != nil {
+			return "", err
+		}
+		if se, ok := tok.(xml.StartElement); ok {
+			return se.Name.Local, nil
+		}
+	}
+}
 
-	_, err = io.Copy(hash, file)
+// sha1File streams a file through SHA-1 and returns the base64 digest,
+// which is the encoding used by SMPTE PKL hashes.
+func sha1File(path string) (string, error) {
+	f, err := os.Open(path)
 	if err != nil {
 		return "", err
 	}
+	defer f.Close()
 
-	hashBytes := hash.Sum(nil)
-	encodedHash := base64.StdEncoding.EncodeToString(hashBytes)
-
-	return encodedHash, err
-}
-
-func verifySize(f string, s string) (int64, error) {
-	file, err := os.Stat(f)
-
-	if err != nil {
-		return -1, err
+	h := sha1.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return "", err
 	}
-
-	return file.Size(), err
+	return base64.StdEncoding.EncodeToString(h.Sum(nil)), nil
 }

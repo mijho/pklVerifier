@@ -3,160 +3,66 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
-	"log"
-	"strconv"
-	"strings"
+	"os"
 
 	"github.com/urfave/cli/v2"
 )
 
-// Build time variables
+// Build-time variables, set with -ldflags "-X main.Version=... -X main.Commit=...".
 var (
-	Build   string
-	Commit  string
-	Name    string
-	Version string
-	Author  string
-	Email   string
+	Version = "dev"
+	Commit  = "none"
 )
 
-var inputValue string
-var inputFlag = &cli.StringFlag{
-	Name:        "input",
-	Aliases:     []string{"i"},
-	Usage:       "Specify the DCP to validate",
-	Required:    false,
-	Destination: &inputValue,
-}
-
-var outputValue string
-var outputFlag = &cli.StringFlag{
-	Name:        "output",
-	Aliases:     []string{"o"},
-	Usage:       "Specify a file to write out the results to",
-	Required:    false,
-	Destination: &outputValue,
-}
-
-// CLIApp constructs the cli applications
+// CLIApp constructs the command line application.
 var CLIApp = &cli.App{
-	Name:        "gobcrypt",
-	Usage:       "A DCP Validator",
-	ArgsUsage:   "",
-	Version:     Version + "-" + Commit,
-	Description: fmt.Sprintf("%s: Build: %s", Name, Build),
+	Name:    "pklVerifier",
+	Usage:   "Validate DCP asset hashes and sizes against the PKL",
+	Version: Version + " (" + Commit + ")",
 	Commands: []*cli.Command{
 		{
 			Name:  "validate",
-			Usage: "validate provided DCP",
+			Usage: "validate a DCP directory",
 			Flags: []cli.Flag{
-				inputFlag,
-				outputFlag,
+				&cli.StringFlag{
+					Name:     "input",
+					Aliases:  []string{"i", "d"},
+					Usage:    "Path to the DCP directory",
+					Required: true,
+				},
+				&cli.StringFlag{
+					Name:    "output",
+					Aliases: []string{"o"},
+					Usage:   "Write JSON results to this file instead of stdout",
+				},
 			},
 			Action: ValidateHandler,
 		},
 	},
-	Authors: []*cli.Author{
-		{
-			Name:  Author,
-			Email: Email,
-		},
-	},
 }
 
-type Results struct {
-	Result []*Result `json:"results"`
-	Errors int       `json:"errors"`
-}
-
-type Result struct {
-	Name         string `json:"name"`
-	ReportedSize string `json:"reported_size"`
-	ActualSize   int64  `json:"actual_size"`
-	ReportedHash string `json:"reported_hash"`
-	ActualHash   string `json:"actual_hash"`
-	HashValid    bool   `json:"hash_valid"`
-	SizeValid    bool   `json:"size_vaild`
-}
-
-// ValidateHandler provides functionality to validate DCP
+// ValidateHandler runs validation, emits JSON, and exits 2 if any asset failed.
 func ValidateHandler(c *cli.Context) error {
-	ec := 0
-	listOfPkls, assetMapPath, err := findXmlFiles(inputValue)
+	res, err := Validate(c.String("input"))
 	if err != nil {
-		log.Fatalf("There was an error finding XML files: %s\n", err)
+		return err
 	}
 
-	var assetsArray []map[string]string
-
-	for _, file := range listOfPkls {
-		body, err := ioutil.ReadFile(file)
-		if err != nil {
-			log.Fatalf("There was an error reading body of XML: %s, %s\n", file, body)
-		}
-
-		if strings.Contains(string(body), "<PackingList") {
-			assetsArray, err = getAssetValues(file, assetMapPath)
-			if err != nil {
-				log.Fatalf("There was an error retieving asset values: %s\n", err)
-			}
-		}
-	}
-
-	var results Results
-
-	for _, asset := range assetsArray {
-		var hashValid, sizeValid bool
-		fileToVerify := strings.Join([]string{inputValue, "/", asset["Name"]}, "")
-
-		encodedHash, err := verifyHash(fileToVerify)
-		if err != nil {
-			log.Fatalf("There was an error hashing %s: %s \n", fileToVerify, err)
-		}
-
-		if asset["Hash"] != encodedHash {
-			hashValid = false
-			ec++
-		} else {
-			hashValid = true
-		}
-
-		fileSize, err := verifySize(fileToVerify, asset["Size"])
-		if err != nil {
-			log.Fatalf("There was an error getting file size %s: %s \n", fileToVerify, err)
-		}
-
-		if asset["Size"] != strconv.FormatInt(fileSize, 10) {
-			sizeValid = false
-			ec++
-		} else {
-			sizeValid = true
-		}
-
-		result := &Result{
-			Name:         fileToVerify,
-			ReportedSize: asset["Size"],
-			ActualSize:   fileSize,
-			ReportedHash: asset["Hash"],
-			ActualHash:   encodedHash,
-			HashValid:    hashValid,
-			SizeValid:    sizeValid,
-		}
-
-		results = Results{Result: append(results.Result, result)}
-	}
-
-	results = Results{
-		Result: results.Result,
-		Errors: ec,
-	}
-
-	b, err := json.Marshal(results)
+	b, err := json.MarshalIndent(res, "", "  ")
 	if err != nil {
-		log.Fatalf("error marshalling json: %v", err)
+		return fmt.Errorf("marshalling results: %w", err)
 	}
-	fmt.Println(string(b))
 
+	if out := c.String("output"); out != "" {
+		if err := os.WriteFile(out, append(b, '\n'), 0o644); err != nil {
+			return fmt.Errorf("writing output: %w", err)
+		}
+	} else {
+		fmt.Println(string(b))
+	}
+
+	if res.Errors > 0 {
+		return cli.Exit(fmt.Sprintf("%d asset(s) failed validation", res.Errors), 2)
+	}
 	return nil
 }
