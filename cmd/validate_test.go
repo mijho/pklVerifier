@@ -313,3 +313,69 @@ func TestAssetMapOnlyEntryReported(t *testing.T) {
 	}
 	t.Fatalf("extra.mxf not reported: %+v", res.Results)
 }
+
+// filmFolder builds a DCP-o-matic style layout: a film directory holding
+// metadata and one DCP subdirectory per DCP, each with its own ASSETMAP.
+func filmFolder(t *testing.T, dcps ...string) string {
+	t.Helper()
+	film := t.TempDir()
+	writeFile(t, filepath.Join(film, "metadata.xml"), "<Metadata/>")
+	for _, name := range dcps {
+		buildDCP(t, filepath.Join(film, name), sampleAssets)
+	}
+	return film
+}
+
+func TestFilmFolderWithNestedDCP(t *testing.T) {
+	film := filmFolder(t, "Feature_OV")
+	res := mustValidate(t, film)
+	if len(res.Results) != 2 {
+		t.Fatalf("expected 2 results, got %+v", res)
+	}
+	assertAllValid(t, res)
+	if res.Results[0].Name != "Feature_OV/video.mxf" {
+		t.Errorf("expected nested name, got %q", res.Results[0].Name)
+	}
+}
+
+func TestFilmFolderTwoDCPsBothValidated(t *testing.T) {
+	film := filmFolder(t, "Feature_OV", "Feature_VF")
+	res := mustValidate(t, film)
+	if len(res.Results) != 4 {
+		t.Fatalf("expected results from both DCPs, got %d", len(res.Results))
+	}
+	assertAllValid(t, res)
+}
+
+func TestFilmFolderTamperedNestedDCP(t *testing.T) {
+	film := filmFolder(t, "Feature_OV")
+	writeFile(t, filepath.Join(film, "Feature_OV", "video.mxf"), "MXF-DATA-0123456780")
+	res := mustValidate(t, film)
+	if res.Errors != 1 {
+		t.Fatalf("expected 1 error, got %+v", res)
+	}
+	for _, r := range res.Results {
+		if r.Name == "Feature_OV/video.mxf" && !r.failed() {
+			t.Errorf("tampered asset not flagged: %+v", r)
+		}
+	}
+}
+
+func TestFilmFolderUnlistedFileInNestedDCP(t *testing.T) {
+	film := filmFolder(t, "Feature_OV")
+	writeFile(t, filepath.Join(film, "Feature_OV", "stray.mxf"), "junk")
+	res := mustValidate(t, film)
+	if res.Errors != 1 || len(res.Unlisted) != 1 || res.Unlisted[0] != "Feature_OV/stray.mxf" {
+		t.Fatalf("expected nested stray file reported, got %+v", res)
+	}
+}
+
+func TestFilmFolderMetadataNotUnlisted(t *testing.T) {
+	film := filmFolder(t, "Feature_OV")
+	res := mustValidate(t, film)
+	for _, u := range res.Unlisted {
+		if u == "metadata.xml" {
+			t.Fatalf("film-level metadata.xml should not be reported as unlisted")
+		}
+	}
+}

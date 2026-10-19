@@ -2,7 +2,6 @@ package main
 
 import (
 	"encoding/xml"
-	"fmt"
 	"io"
 	"io/fs"
 	"os"
@@ -10,18 +9,17 @@ import (
 	"strings"
 )
 
-// dcpFiles holds the files discovered in a DCP directory. All paths are absolute.
+// dcpFiles holds the files discovered under an input directory. All paths are absolute or input-relative as given.
 type dcpFiles struct {
 	packingLists []string // PKLs, detected by root element
-	assetMap     string   // the ASSETMAP, or "" if absent
-	regular      []string // every regular file under the DCP
+	assetMaps    []string // every ASSETMAP found, one per DCP directory
+	regular      []string // every regular file under the input
 }
 
-// findDcpFiles walks dir and locates PackingList files and the ASSETMAP.
+// findDcpFiles walks dir and locates PackingList files and ASSETMAPs.
 // Matching is case-insensitive and only regular files are considered.
 func findDcpFiles(dir string) (dcpFiles, error) {
 	var out dcpFiles
-	var assetMaps []string
 
 	err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
@@ -34,7 +32,7 @@ func findDcpFiles(dir string) (dcpFiles, error) {
 
 		upper := strings.ToUpper(d.Name())
 		if upper == "ASSETMAP" || upper == "ASSETMAP.XML" {
-			assetMaps = append(assetMaps, path)
+			out.assetMaps = append(out.assetMaps, path)
 			return nil
 		}
 		if !strings.HasSuffix(upper, ".XML") {
@@ -49,18 +47,7 @@ func findDcpFiles(dir string) (dcpFiles, error) {
 		}
 		return nil
 	})
-	if err != nil {
-		return out, err
-	}
-
-	switch len(assetMaps) {
-	case 0:
-	case 1:
-		out.assetMap = assetMaps[0]
-	default:
-		return out, fmt.Errorf("multiple ASSETMAP files found: %v", assetMaps)
-	}
-	return out, nil
+	return out, err
 }
 
 // rootElement returns the local name of the document's root element.
@@ -101,6 +88,12 @@ func relSlash(dir, p string) string {
 		return filepath.ToSlash(p)
 	}
 	return filepath.ToSlash(r)
+}
+
+// within reports whether p lies at or below root.
+func within(root, p string) bool {
+	r, err := filepath.Rel(root, p)
+	return err == nil && r != ".." && !strings.HasPrefix(r, ".."+string(filepath.Separator))
 }
 
 // normRel canonicalises an ASSETMAP or PKL path for comparison.

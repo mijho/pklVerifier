@@ -37,8 +37,8 @@ type Results struct {
 	Errors   int      `json:"errors"`
 }
 
-// Validate checks every PKL under dir and cross-checks the ASSETMAP.
-// Per-asset problems are recorded in the results rather than aborting the run.
+// Validate checks every DCP found under dir: each PKL against its ASSETMAP and
+// the files on disk. Per-asset problems are recorded in the results rather than aborting the run.
 func Validate(dir string) (Results, error) {
 	res := Results{Results: []Result{}}
 
@@ -49,31 +49,45 @@ func Validate(dir string) (Results, error) {
 	if len(files.packingLists) == 0 {
 		return res, fmt.Errorf("no PackingList (PKL) found in %s", dir)
 	}
-
-	var amap map[string][]string
-	if files.assetMap != "" {
-		if amap, err = readAssetMap(files.assetMap); err != nil {
+	roots, err := groupDCPs(dir, files)
+	if err != nil {
+		return res, err
+	}
+	for _, root := range roots {
+		if err := validateDCP(dir, root, &res); err != nil {
 			return res, err
 		}
 	}
+	return res, nil
+}
 
-	pklFiles := make(map[string]bool, len(files.packingLists))
-	for _, p := range files.packingLists {
-		pklFiles[relSlash(dir, p)] = true
+func validateDCP(input string, root *dcpRoot, res *Results) error {
+	var amap map[string][]string
+	if root.assetMap != "" {
+		var err error
+		if amap, err = readAssetMap(root.assetMap); err != nil {
+			return err
+		}
+	}
+
+	pklFiles := make(map[string]bool, len(root.pkls))
+	for _, p := range root.pkls {
+		pklFiles[relSlash(root.dir, p)] = true
 	}
 
 	covered := make(map[string]bool)
-	for _, pkl := range files.packingLists {
+	for _, pkl := range root.pkls {
 		assets, err := readPackingList(pkl)
 		if err != nil {
-			return res, err
+			return err
 		}
 		for _, a := range assets {
 			rels := assetPaths(a, amap)
 			for _, rel := range rels {
 				covered[normRel(rel)] = true
 			}
-			r := checkAsset(dir, a, rels)
+			r := checkAsset(root.dir, a, rels)
+			r.Name = displayName(input, root.dir, r.Name)
 			if r.failed() {
 				res.Errors++
 			}
@@ -81,8 +95,8 @@ func Validate(dir string) (Results, error) {
 		}
 	}
 
-	if files.assetMap == "" {
-		return res, nil
+	if root.assetMap == "" {
+		return nil
 	}
 
 	// ASSETMAP entries that no PKL lists. PKL files themselves are expected here.
@@ -103,7 +117,7 @@ func Validate(dir string) (Results, error) {
 			continue
 		}
 		res.Results = append(res.Results, Result{
-			Name:       rel,
+			Name:       displayName(input, root.dir, rel),
 			ActualSize: -1,
 			Error:      "listed in ASSETMAP but not in any PKL",
 		})
@@ -111,19 +125,19 @@ func Validate(dir string) (Results, error) {
 	}
 
 	// Files on disk that the ASSETMAP does not mention.
-	assetMapRel := relSlash(dir, files.assetMap)
-	for _, p := range files.regular {
-		rel := relSlash(dir, p)
+	assetMapRel := relSlash(root.dir, root.assetMap)
+	for _, p := range root.files {
+		rel := relSlash(root.dir, p)
 		if listed[rel] || pklFiles[rel] || rel == assetMapRel {
 			continue
 		}
 		if strings.EqualFold(filepath.Base(rel), "VOLINDEX.xml") {
 			continue
 		}
-		res.Unlisted = append(res.Unlisted, rel)
+		res.Unlisted = append(res.Unlisted, displayName(input, root.dir, rel))
 		res.Errors++
 	}
-	return res, nil
+	return nil
 }
 
 // assetPaths returns the file path(s) for an asset, in chunk order. It prefers
@@ -138,7 +152,8 @@ func assetPaths(a pklAsset, amap map[string][]string) []string {
 	return nil
 }
 
-func checkAsset(dir string, a pklAsset, rels []string) Result {
+// checkAsset hashes and sizes an asset. dcpDir is the DCP root that its paths are relative to.
+func checkAsset(dcpDir string, a pklAsset, rels []string) Result {
 	id := strings.TrimSpace(a.ID)
 	r := Result{
 		Name:         strings.Join(rels, " + "),
@@ -154,7 +169,7 @@ func checkAsset(dir string, a pklAsset, rels []string) Result {
 	h := sha1.New()
 	var total int64
 	for _, rel := range rels {
-		full, err := resolvePath(dir, rel)
+		full, err := resolvePath(dcpDir, rel)
 		if err != nil {
 			r.Error = err.Error()
 			return r
@@ -191,8 +206,7 @@ func resolvePath(dir, rel string) (string, error) {
 		return "", fmt.Errorf("absolute path %q is not allowed", rel)
 	}
 	full := filepath.Join(dir, native)
-	r, err := filepath.Rel(dir, full)
-	if err != nil || r == ".." || strings.HasPrefix(r, ".."+string(filepath.Separator)) {
+	if !within(dir, full) {
 		return "", errors.New("path " + strconv.Quote(rel) + " escapes the DCP directory")
 	}
 	return full, nil
